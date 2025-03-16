@@ -8,13 +8,13 @@ import potrace
 import streamlit as st
 from tempfile import NamedTemporaryFile
 
-# 设置页面配置
+# Page configuration
 st.set_page_config(
-    layout="wide",  # 使用宽屏模式
+    layout="wide",  # Use wide screen mode
     initial_sidebar_state="expanded"
 )
 
-# 初始化session_state以存储处理后的数据
+# Initialize session_state to store processed data
 if 'processed_data' not in st.session_state:
     st.session_state.processed_data = None
 if 'video_frames' not in st.session_state:
@@ -24,39 +24,39 @@ if 'current_frame' not in st.session_state:
 if 'is_playing' not in st.session_state:
     st.session_state.is_playing = False
 
-# 配置参数
-st.sidebar.title("贝塞尔曲线渲染器")
-MEDIA_TYPE = st.sidebar.radio("选择媒体类型", ["图片", "视频"])
-COLOUR = st.sidebar.color_picker("线条颜色", "#2464b4")
-BILATERAL_FILTER = st.sidebar.checkbox("双边滤波", False)
-USE_L2_GRADIENT = st.sidebar.checkbox("使用L2梯度", False)
-SHOW_GRID = st.sidebar.checkbox("显示网格", True)
-SHOW_EXPRESSIONS = st.sidebar.checkbox("显示表达式内容", True)
+# Configuration parameters
+st.sidebar.title("DesmosArt")
+MEDIA_TYPE = st.sidebar.radio("Select media type:", ["Image", "Video"])
+COLOUR = st.sidebar.color_picker("Line color", "#2464b4")
+BILATERAL_FILTER = st.sidebar.checkbox("Bilateral filter", False)
+USE_L2_GRADIENT = st.sidebar.checkbox("Use L2 gradient", False)
+SHOW_GRID = st.sidebar.checkbox("Show grid", True)
+SHOW_EXPRESSIONS = st.sidebar.checkbox("Show expression content", True)
 
-if MEDIA_TYPE == "视频":
-    st.sidebar.subheader("视频设置")
-    FPS = st.sidebar.slider("帧率", 1, 60, 15)  # 默认降低到15fps
-    FRAME_INTERVAL = 1000 // FPS  # 毫秒
+if MEDIA_TYPE == "Video":
+    st.sidebar.subheader("Video Settings")
+    FPS = st.sidebar.slider("Frame rate", 1, 60, 15)  # Default reduced to 15fps
+    FRAME_INTERVAL = 1000 // FPS  # Milliseconds
     
-    # 添加性能优化选项
-    st.sidebar.subheader("性能优化")
-    VIDEO_SCALE = st.sidebar.slider("视频缩放比例", 0.1, 1.0, 0.5, 0.1)  # 默认缩放到50%
-    MAX_EXPRESSIONS_PER_FRAME = st.sidebar.slider("每帧最大表达式数", 100, 5000, 1000)  # 限制每帧的表达式数量
-    FRAME_SKIP = st.sidebar.slider("帧间隔", 1, 10, 2)  # 每隔几帧处理一帧
+    # Add performance optimization options
+    st.sidebar.subheader("Performance Optimization")
+    VIDEO_SCALE = st.sidebar.slider("Video scale factor", 0.1, 1.0, 0.5, 0.1)  # Default scale to 50%
+    MAX_EXPRESSIONS_PER_FRAME = st.sidebar.slider("Max expressions per frame", 100, 5000, 1000)  # Limit expressions per frame
+    FRAME_SKIP = st.sidebar.slider("Frame interval", 1, 10, 2)  # Process every Nth frame
 
-# 设置最大表达式数量
+# Set maximum number of expressions
 MAX_EXPRESSIONS = 50000
 MAX_SIZE = 600
 
 def resize_image(image, max_size=MAX_SIZE):
-    if MEDIA_TYPE == "视频":
-        # 对视频使用缩放比例
+    if MEDIA_TYPE == "Video":
+        # Use scale factor for videos
         height, width = image.shape[:2]
         new_width = int(width * VIDEO_SCALE)
         new_height = int(height * VIDEO_SCALE)
         return cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
     else:
-        # 图片处理保持不变
+        # Image processing remains unchanged
         height, width = image.shape[:2]
         if max(height, width) <= max_size:
             return image
@@ -113,10 +113,10 @@ def get_latex(image):
 def get_expressions(image):
     exprs = []
     latex_expressions = get_latex(image)
-    print(f"[信息] 获取到 {len(latex_expressions)} 个表达式")
+    print(f"[INFO] Retrieved {len(latex_expressions)} expressions")
     
-    # 根据媒体类型选择最大表达式数量
-    max_expr = MAX_EXPRESSIONS_PER_FRAME if MEDIA_TYPE == "视频" else MAX_EXPRESSIONS
+    # Choose maximum expressions based on media type
+    max_expr = MAX_EXPRESSIONS_PER_FRAME if MEDIA_TYPE == "Video" else MAX_EXPRESSIONS
     
     for i, expr in enumerate(latex_expressions[:max_expr]):
         exprs.append({
@@ -130,7 +130,7 @@ def get_expressions(image):
     if len(latex_expressions) > max_expr:
         exprs.append({
             'id': 'truncated',
-            'latex': f'\\text{{显示了 {max_expr}/{len(latex_expressions)} 个表达式}}',
+            'latex': f'\\text{{Showing {max_expr}/{len(latex_expressions)} expressions}}',
             'color': '#FF0000',
             'secret': False
         })
@@ -138,7 +138,7 @@ def get_expressions(image):
     if len(exprs) == 0:
         exprs.append({
             'id': 'empty',
-            'latex': '\\text{无表达式}',
+            'latex': '\\text{No expressions}',
             'color': COLOUR,
             'secret': False
         })
@@ -148,18 +148,18 @@ def get_expressions(image):
 @st.cache_data
 def process_image(image):
     try:
-        print("[信息] 开始处理图片...")
+        print("[INFO] Starting image processing...")
         expressions = get_expressions(image)
-        print(f"[信息] 处理完成，生成了 {len(expressions)} 个表达式")
+        print(f"[INFO] Processing complete, generated {len(expressions)} expressions")
         return expressions
     except Exception as e:
         import traceback
-        print(f"处理图片时发生错误: {str(e)}")
+        print(f"Error processing image: {str(e)}")
         print(traceback.format_exc())
         return []
 
 def process_video(video_path):
-    """处理视频文件，提取帧并生成表达式"""
+    """Process video file, extract frames and generate expressions"""
     frames_data = []
     cap = cv2.VideoCapture(video_path)
     
@@ -174,94 +174,94 @@ def process_video(video_path):
         if not ret:
             break
             
-        # 根据帧间隔跳过一些帧
+        # Skip frames according to frame interval
         if frame_count % FRAME_SKIP == 0:
-            # 调整帧的大小
+            # Resize the frame
             frame = resize_image(frame)
             
-            # 处理帧并获取表达式
+            # Process frame and get expressions
             expressions = process_image(frame)
             frames_data.append(expressions)
             processed_count += 1
             
-        # 更新进度条
+        # Update progress bar
         progress = int((frame_count + 1) / total_frames * 100)
         progress_bar.progress(progress)
         frame_count += 1
         
     cap.release()
     
-    # 显示处理信息
-    st.sidebar.info(f"总帧数: {total_frames}, 处理帧数: {processed_count}")
+    # Display processing information
+    st.sidebar.info(f"Total frames: {total_frames}, Processed frames: {processed_count}")
     return frames_data
 
-# 主程序
-if MEDIA_TYPE == "图片":
-    uploaded_file = st.sidebar.file_uploader("选择图片", type=['png', 'jpg', 'jpeg'])
+# Main program
+if MEDIA_TYPE == "Image":
+    uploaded_file = st.sidebar.file_uploader("Select image", type=['png', 'jpg', 'jpeg'])
     
     if uploaded_file is not None:
-        # 读取图片
+        # Read image
         file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
         image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
         
-        # 显示原始图片尺寸
+        # Display original image size
         height, width = image.shape[:2]
-        st.sidebar.text(f"原始图片尺寸: {width}×{height}")
+        st.sidebar.text(f"Original image size: {width}×{height}")
         
-        # 压缩图片
+        # Compress image
         image = resize_image(image)
         
-        # 显示压缩后的图片尺寸
+        # Display compressed image size
         height, width = image.shape[:2]
-        st.sidebar.text(f"处理尺寸: {width}×{height}")
+        st.sidebar.text(f"Processing size: {width}×{height}")
         
-        # 显示上传的图片（使用压缩后的版本）
-        st.sidebar.image(cv2.cvtColor(image, cv2.COLOR_BGR2RGB), caption='上传的图片', use_container_width=True)
+        # Display uploaded image (using compressed version)
+        st.sidebar.image(cv2.cvtColor(image, cv2.COLOR_BGR2RGB), caption='Uploaded image', use_container_width=True)
         
-        if st.sidebar.button("开始处理"):
-            with st.spinner("处理中..."):
+        if st.sidebar.button("Start Processing"):
+            with st.spinner("Processing..."):
                 start_time = time.time()
                 st.session_state.processed_data = process_image(image)
-                st.session_state.video_frames = None  # 清除视频数据
+                st.session_state.video_frames = None  # Clear video data
                 process_time = time.time() - start_time
-                st.sidebar.success(f"处理完成！耗时 {process_time:.1f} 秒")
+                st.sidebar.success(f"Processing complete! Took {process_time:.1f} seconds")
                 
-                # 显示线条总数
+                # Display total curves
                 if st.session_state.processed_data:
                     total_curves = len(st.session_state.processed_data)
-                    st.sidebar.info(f"共生成了 {total_curves} 条贝塞尔曲线")
+                    st.sidebar.info(f"Generated {total_curves} Bezier curves")
 
-else:  # 视频处理
+else:  # Video processing
     uploaded_file = st.sidebar.file_uploader(
-        "选择视频",
+        "Select video",
         type=["mov", "mp4", "avi", "mkv", "MOV", "MP4", "AVI", "MKV"],
-        help="支持 MOV、MP4、AVI、MKV 等格式的视频"
+        help="Supports MOV, MP4, AVI, MKV and other video formats"
     )
     
     if uploaded_file is not None:
-        # 获取文件扩展名并转换为小写
+        # Get file extension and convert to lowercase
         file_extension = os.path.splitext(uploaded_file.name)[1].lower()
         
-        # 验证文件扩展名
+        # Verify file extension
         allowed_extensions = ['.mov', '.mp4', '.avi', '.mkv']
         if file_extension not in allowed_extensions:
-            st.error(f"不支持的文件格式：{file_extension}。请上传 MOV、MP4、AVI 或 MKV 格式的视频。")
+            st.error(f"Unsupported file format: {file_extension}. Please upload a MOV, MP4, AVI or MKV format video.")
             st.stop()
         
-        # 保存上传的视频到临时文件
+        # Save uploaded video to temporary file
         with NamedTemporaryFile(delete=False, suffix=file_extension) as tmp_file:
             tmp_file.write(uploaded_file.read())
             video_path = tmp_file.name
 
         try:
-            # 尝试预览视频
+            # Try to preview video
             video_bytes = uploaded_file.getvalue()
             st.sidebar.video(video_bytes)
             
-            # 获取视频信息
+            # Get video information
             cap = cv2.VideoCapture(video_path)
             if not cap.isOpened():
-                st.error("无法打开视频文件，请确保视频格式正确")
+                st.error("Cannot open video file, please ensure the video format is correct")
                 os.unlink(video_path)
                 st.stop()
                 
@@ -270,45 +270,45 @@ else:  # 视频处理
             duration = total_frames / fps
             cap.release()
             
-            # 显示视频信息
-            st.sidebar.text(f"视频信息:")
-            st.sidebar.text(f"总帧数: {total_frames}")
-            st.sidebar.text(f"原始帧率: {fps} FPS")
-            st.sidebar.text(f"时长: {duration:.1f} 秒")
+            # Display video information
+            st.sidebar.text(f"Video information:")
+            st.sidebar.text(f"Total frames: {total_frames}")
+            st.sidebar.text(f"Original frame rate: {fps} FPS")
+            st.sidebar.text(f"Duration: {duration:.1f} seconds")
             
-            if st.sidebar.button("开始处理"):
-                with st.spinner("正在处理视频..."):
+            if st.sidebar.button("Start Processing"):
+                with st.spinner("Processing video..."):
                     start_time = time.time()
                     st.session_state.video_frames = process_video(video_path)
-                    st.session_state.processed_data = st.session_state.video_frames[0]  # 显示第一帧
+                    st.session_state.processed_data = st.session_state.video_frames[0]  # Display first frame
                     st.session_state.current_frame = 0
                     process_time = time.time() - start_time
-                    st.sidebar.success(f"处理完成！耗时 {process_time:.1f} 秒")
+                    st.sidebar.success(f"Processing complete! Took {process_time:.1f} seconds")
         
         except Exception as e:
-            st.error(f"处理视频时出错: {str(e)}")
+            st.error(f"Error processing video: {str(e)}")
         finally:
-            # 删除临时文件
+            # Delete temporary file
             if os.path.exists(video_path):
                 os.unlink(video_path)
 
-# 自定义CSS
+# Custom CSS
 st.markdown("""
 <style>
-    /* 重置基础样式 */
+    /* Reset base styles */
     .block-container {
         padding: 0 !important;
         margin: 0 !important;
         max-width: 100% !important;
     }
 
-    /* 隐藏头部和页脚 */
+    /* Hide header and footer */
     header[data-testid="stHeader"],
     footer {
         display: none !important;
     }
 
-    /* 侧边栏样式 */
+    /* Sidebar styles */
     [data-testid="stSidebar"] {
         position: fixed !important;
         left: 0 !important;
@@ -327,7 +327,7 @@ st.markdown("""
         padding-bottom: 1rem !important;
     }
 
-    /* 恢复侧边栏组件的样式 */
+    /* Restore sidebar component styles */
     [data-testid="stSidebar"] .element-container {
         margin: 0.5rem 0 !important;
     }
@@ -344,7 +344,7 @@ st.markdown("""
         margin: 0.5rem 0 !important;
     }
 
-    /* 主内容区域样式 */
+    /* Main content area styles */
     .main {
         position: absolute !important;
         left: 350px !important;
@@ -354,7 +354,7 @@ st.markdown("""
         background: transparent !important;
     }
 
-    /* Desmos容器样式 */
+    /* Desmos container styles */
     #calculator {
         position: absolute !important;
         left: 0 !important;
@@ -366,16 +366,16 @@ st.markdown("""
         border: none !important;
     }
 
-    /* 移除滚动条 */
+    /* Remove scrollbars */
     ::-webkit-scrollbar {
         display: none !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# 如果已经处理了图片或视频，则显示结果
+# If an image or video has been processed, display the result
 if st.session_state.processed_data is not None:
-    # 生成Desmos嵌入代码
+    # Generate Desmos embed code
     desmos_html = f"""
     <div id="calculator" style="position: absolute !important; left: 350px !important; top: 0 !important; right: 0 !important; bottom: 0 !important; width: calc(100% - 350px) !important; height: 100% !important; border: none !important;"></div>
     <script src="https://www.desmos.com/api/v1.8/calculator.js?apiKey=dcb31709b452b1cf9dc26972add0fda6"></script>
@@ -396,12 +396,12 @@ if st.session_state.processed_data is not None:
             aspectRatio: 1
         }});
 
-        // 设置表达式面板位置
+        // Set expressions panel position
         calculator.updateSettings({{
             expressionsOrigin: {{ x: "left" }}
         }});
         
-        // 设置视图范围
+        // Set view bounds
         calculator.setMathBounds({{
             left: -10,
             right: 10,
@@ -409,9 +409,9 @@ if st.session_state.processed_data is not None:
             top: 10
         }});
         
-        // 监听窗口大小变化
+        // Listen for window resize
         window.addEventListener('resize', function() {{
-            // 保持视图范围不变，让Desmos自动处理缩放
+            // Keep the view bounds unchanged, let Desmos handle scaling
             calculator.setMathBounds({{
                 left: -10,
                 right: 10,
@@ -422,7 +422,7 @@ if st.session_state.processed_data is not None:
         
         var currentFrame = 0;
         var isPlaying = false;
-        var frameInterval = {FRAME_INTERVAL if MEDIA_TYPE == "视频" else 0};
+        var frameInterval = {FRAME_INTERVAL if MEDIA_TYPE == "Video" else 0};
         var videoFrames = {json.dumps(st.session_state.video_frames) if st.session_state.video_frames else 'null'};
         
         function loadFrame(frameData) {{
@@ -445,11 +445,11 @@ if st.session_state.processed_data is not None:
             var expressions = {json.dumps(st.session_state.processed_data)};
             
             if (videoFrames) {{
-                // 视频模式
+                // Video mode
                 isPlaying = true;
                 playAnimation();
             }} else {{
-                // 图片模式
+                // Image mode
                 function loadExpressionsInBatches(exprs, batchSize=500, delay=100) {{
                     var i = 0;
                     function loadBatch() {{
@@ -462,7 +462,7 @@ if st.session_state.processed_data is not None:
                             if (i < exprs.length) {{
                                 setTimeout(loadBatch, delay);
                             }} else {{
-                                console.log("全部加载完成: " + exprs.length + " 个表达式");
+                                console.log("All loaded: " + exprs.length + " expressions");
                             }}
                         }}
                     }}
@@ -473,7 +473,7 @@ if st.session_state.processed_data is not None:
             }}
             
         }} catch(e) {{
-            console.error("加载表达式出错:", e);
+            console.error("Error loading expressions:", e);
         }}
     </script>
     """
