@@ -23,26 +23,55 @@ if 'current_frame' not in st.session_state:
     st.session_state.current_frame = 0
 if 'is_playing' not in st.session_state:
     st.session_state.is_playing = False
+if 'current_color' not in st.session_state:
+    st.session_state.current_color = "#2464b4"  # Default color
+if 'active_color' not in st.session_state:
+    st.session_state.active_color = "#2464b4"  # Default color
 
 # Configuration parameters
 st.sidebar.title("DesmosArt")
 MEDIA_TYPE = st.sidebar.radio("Select media type:", ["Image", "Video"])
-COLOUR = st.sidebar.color_picker("Line color", "#2464b4")
-BILATERAL_FILTER = st.sidebar.checkbox("Bilateral filter", False)
-USE_L2_GRADIENT = st.sidebar.checkbox("Use L2 gradient", False)
-SHOW_GRID = st.sidebar.checkbox("Show grid", True)
-SHOW_EXPRESSIONS = st.sidebar.checkbox("Show expression content", True)
 
+# Initialize video variables
 if MEDIA_TYPE == "Video":
     st.sidebar.subheader("Video Settings")
-    FPS = st.sidebar.slider("Frame rate", 1, 60, 15)  # Default reduced to 15fps
-    FRAME_INTERVAL = 1000 // FPS  # Milliseconds
+    if 'video_fps' not in st.session_state:
+        st.session_state.video_fps = 30  # Default FPS if not set
+    PLAYBACK_SPEED = st.sidebar.slider("Playback speed", 0.25, 2.0, 1.0, 0.25)
+    FRAME_INTERVAL = int(1000 / (st.session_state.video_fps * PLAYBACK_SPEED))  # Convert FPS to milliseconds
+    FRAME_SKIP = st.sidebar.slider("Process every Nth frame", 1, 10, 2)  # Process every Nth frame
     
     # Add performance optimization options
     st.sidebar.subheader("Performance Optimization")
     VIDEO_SCALE = st.sidebar.slider("Video scale factor", 0.1, 1.0, 0.5, 0.1)  # Default scale to 50%
     MAX_EXPRESSIONS_PER_FRAME = st.sidebar.slider("Max expressions per frame", 100, 5000, 1000)  # Limit expressions per frame
-    FRAME_SKIP = st.sidebar.slider("Frame interval", 1, 10, 2)  # Process every Nth frame
+else:
+    FRAME_INTERVAL = 0  # Not used for images
+    FRAME_SKIP = 1  # Default
+    VIDEO_SCALE = 1.0  # Default
+    MAX_EXPRESSIONS_PER_FRAME = 5000  # Default
+
+# Set up a dedicated color management system
+COLOUR = st.sidebar.color_picker("Line color", st.session_state.active_color, key="color_picker")
+
+# Add a button to update color only when processed data exists
+if 'processed_data' in st.session_state and st.session_state.processed_data is not None:
+    if st.sidebar.button("Update Color"):
+        # Store the new color in session state - using upper for consistency
+        st.session_state.active_color = COLOUR.upper()
+        st.session_state.current_color = COLOUR.upper()
+        st.sidebar.success(f"Color updated to {COLOUR.upper()}!")
+        # Force a rerun to ensure the UI updates
+        st.experimental_rerun()
+else:
+    # Initialize current_color if needed
+    st.session_state.active_color = COLOUR.upper()
+    st.session_state.current_color = COLOUR.upper()
+
+BILATERAL_FILTER = st.sidebar.checkbox("Bilateral filter", False)
+USE_L2_GRADIENT = st.sidebar.checkbox("Use L2 gradient", False)
+SHOW_GRID = st.sidebar.checkbox("Show grid", True)
+SHOW_EXPRESSIONS = st.sidebar.checkbox("Show expression content", True)
 
 # Set maximum number of expressions
 MAX_EXPRESSIONS = 50000
@@ -110,7 +139,7 @@ def get_latex(image):
             start = segment.end_point
     return latex
 
-def get_expressions(image):
+def get_expressions(image, color):
     exprs = []
     latex_expressions = get_latex(image)
     print(f"[INFO] Retrieved {len(latex_expressions)} expressions")
@@ -122,7 +151,8 @@ def get_expressions(image):
         exprs.append({
             'id': f'expr{i}',
             'latex': expr,
-            'color': COLOUR,
+            'color': color.upper(),  # Convert to uppercase to ensure proper format
+            'lineStyle': 'SOLID',  # Use string instead of undefined reference
             'secret': not SHOW_EXPRESSIONS,
             'hidden': False
         })
@@ -139,17 +169,17 @@ def get_expressions(image):
         exprs.append({
             'id': 'empty',
             'latex': '\\text{No expressions}',
-            'color': COLOUR,
+            'color': color.upper(),
             'secret': False
         })
     
     return exprs
 
 @st.cache_data
-def process_image(image):
+def process_image(image, color):
     try:
         print("[INFO] Starting image processing...")
-        expressions = get_expressions(image)
+        expressions = get_expressions(image, color)
         print(f"[INFO] Processing complete, generated {len(expressions)} expressions")
         return expressions
     except Exception as e:
@@ -158,7 +188,7 @@ def process_image(image):
         print(traceback.format_exc())
         return []
 
-def process_video(video_path):
+def process_video(video_path, color):
     """Process video file, extract frames and generate expressions"""
     frames_data = []
     cap = cv2.VideoCapture(video_path)
@@ -180,7 +210,7 @@ def process_video(video_path):
             frame = resize_image(frame)
             
             # Process frame and get expressions
-            expressions = process_image(frame)
+            expressions = process_image(frame, color)
             frames_data.append(expressions)
             processed_count += 1
             
@@ -221,7 +251,7 @@ if MEDIA_TYPE == "Image":
         if st.sidebar.button("Start Processing"):
             with st.spinner("Processing..."):
                 start_time = time.time()
-                st.session_state.processed_data = process_image(image)
+                st.session_state.processed_data = process_image(image, COLOUR)
                 st.session_state.video_frames = None  # Clear video data
                 process_time = time.time() - start_time
                 st.sidebar.success(f"Processing complete! Took {process_time:.1f} seconds")
@@ -267,19 +297,24 @@ else:  # Video processing
                 
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             fps = int(cap.get(cv2.CAP_PROP_FPS))
+            st.session_state.video_fps = fps  # Store the FPS in session state
             duration = total_frames / fps
             cap.release()
+            
+            # Calculate the correct frame interval based on video FPS and playback speed
+            FRAME_INTERVAL = int(1000 / (fps * PLAYBACK_SPEED))
             
             # Display video information
             st.sidebar.text(f"Video information:")
             st.sidebar.text(f"Total frames: {total_frames}")
             st.sidebar.text(f"Original frame rate: {fps} FPS")
+            st.sidebar.text(f"Playback interval: {FRAME_INTERVAL}ms")
             st.sidebar.text(f"Duration: {duration:.1f} seconds")
             
             if st.sidebar.button("Start Processing"):
                 with st.spinner("Processing video..."):
                     start_time = time.time()
-                    st.session_state.video_frames = process_video(video_path)
+                    st.session_state.video_frames = process_video(video_path, COLOUR)
                     st.session_state.processed_data = st.session_state.video_frames[0]  # Display first frame
                     st.session_state.current_frame = 0
                     process_time = time.time() - start_time
@@ -352,6 +387,9 @@ st.markdown("""
         top: 0 !important;
         bottom: 0 !important;
         background: transparent !important;
+        height: 100vh !important; /* Use viewport height */
+        padding: 0 !important;
+        margin: 0 !important;
     }
 
     /* Desmos container styles */
@@ -366,9 +404,26 @@ st.markdown("""
         border: none !important;
     }
 
+    /* Make the iframe take full height */
+    iframe {
+        height: 100vh !important;
+        width: 100% !important;
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+    }
+
     /* Remove scrollbars */
     ::-webkit-scrollbar {
         display: none !important;
+    }
+
+    /* Hide overflow */
+    html, body {
+        overflow: hidden !important;
+        height: 100vh !important;
+        margin: 0 !important;
+        padding: 0 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -377,104 +432,237 @@ st.markdown("""
 if st.session_state.processed_data is not None:
     # Generate Desmos embed code
     desmos_html = f"""
-    <div id="calculator" style="position: absolute !important; left: 350px !important; top: 0 !important; right: 0 !important; bottom: 0 !important; width: calc(100% - 350px) !important; height: 100% !important; border: none !important;"></div>
+    <div id="calculator" style="position: absolute !important; left: 350px !important; top: 0 !important; right: 0 !important; bottom: 0 !important; width: calc(100% - 350px) !important; height: 100vh !important; border: none !important;"></div>
     <script src="https://www.desmos.com/api/v1.8/calculator.js?apiKey=dcb31709b452b1cf9dc26972add0fda6"></script>
     <script>
-        var elt = document.getElementById('calculator');
-        var calculator = Desmos.GraphingCalculator(elt, {{
-            expressions: true,
-            settingsMenu: true,
-            zoomButtons: true,
-            expressionsTopbar: true,
-            border: false,
-            lockViewport: false,
-            showGrid: {str(SHOW_GRID).lower()},
-            expressionsCollapsed: false,
-            squareAxes: true,
-            autosize: true,
-            projectorMode: true,
-            aspectRatio: 1
-        }});
-
-        // Set expressions panel position
-        calculator.updateSettings({{
-            expressionsOrigin: {{ x: "left" }}
-        }});
+        // Define custom colors palette
+        var customColors = {{
+            "CURRENT": "{st.session_state.current_color}",
+            "RED": "#c74440",
+            "BLUE": "#2d70b3",
+            "GREEN": "#388c46",
+            "PURPLE": "#6042a6",
+            "ORANGE": "#fa7e19",
+            "BLACK": "#000000"
+        }};
         
-        // Set view bounds
-        calculator.setMathBounds({{
-            left: -10,
-            right: 10,
-            bottom: -10,
-            top: 10
-        }});
+        // Wait for document to be fully loaded
+        window.onload = function() {{
+            initializeCalculator();
+        }};
         
-        // Listen for window resize
-        window.addEventListener('resize', function() {{
-            // Keep the view bounds unchanged, let Desmos handle scaling
+        // Initialize the calculator immediately as well, in case the onload event doesn't fire
+        initializeCalculator();
+        
+        // Initialize the calculator
+        function initializeCalculator() {{
+            // Check if calculator has already been initialized
+            if (window.calculatorInitialized) return;
+            window.calculatorInitialized = true;
+        
+            var elt = document.getElementById('calculator');
+            
+            var calculator = Desmos.GraphingCalculator(elt, {{
+                expressions: true,
+                settingsMenu: true,
+                zoomButtons: true,
+                expressionsTopbar: true,
+                border: false,
+                lockViewport: false,
+                showGrid: {str(SHOW_GRID).lower()},
+                expressionsCollapsed: false,
+                squareAxes: true,
+                autosize: true,
+                projectorMode: true,
+                aspectRatio: 1,
+                colors: customColors  // Apply custom colors palette
+            }});
+    
+            // Set expressions panel position
+            calculator.updateSettings({{
+                expressionsOrigin: {{ x: "left" }},
+                defaultColors: false  // Disable Desmos default colors
+            }});
+            
+            // Set view bounds - ensuring a perfect square viewing area
+            var size = 10;
             calculator.setMathBounds({{
-                left: -10,
-                right: 10,
-                bottom: -10,
-                top: 10
+                left: -size,
+                right: size,
+                bottom: -size,
+                top: size
             }});
-        }});
-        
-        var currentFrame = 0;
-        var isPlaying = false;
-        var frameInterval = {FRAME_INTERVAL if MEDIA_TYPE == "Video" else 0};
-        var videoFrames = {json.dumps(st.session_state.video_frames) if st.session_state.video_frames else 'null'};
-        
-        function loadFrame(frameData) {{
-            calculator.removeExpressions(calculator.getExpressions());
-            frameData.forEach(function(expr) {{
-                calculator.setExpression(expr);
+            
+            // Ensure square axes are enforced
+            calculator.updateSettings({{
+                squareAxes: true
             }});
-        }}
-        
-        function playAnimation() {{
-            if (!videoFrames || !isPlaying) return;
             
-            loadFrame(videoFrames[currentFrame]);
-            currentFrame = (currentFrame + 1) % videoFrames.length;
+            // Force resize to ensure the aspect ratio is applied
+            setTimeout(function() {{
+                calculator.resize();
+                // Double-check that square axes are enforced
+                calculator.updateSettings({{
+                    squareAxes: true
+                }});
+            }}, 100);
             
-            setTimeout(playAnimation, frameInterval);
-        }}
-        
-        try {{
-            var expressions = {json.dumps(st.session_state.processed_data)};
+            // Listen for window resize
+            window.addEventListener('resize', function() {{
+                // Keep the view bounds unchanged, let Desmos handle scaling
+                calculator.setMathBounds({{
+                    left: -size,
+                    right: size,
+                    bottom: -size,
+                    top: size
+                }});
+                // Ensure square axes are maintained on resize
+                calculator.updateSettings({{
+                    squareAxes: true
+                }});
+                // Force resize to apply the settings
+                calculator.resize();
+            }});
             
-            if (videoFrames) {{
-                // Video mode
-                isPlaying = true;
-                playAnimation();
-            }} else {{
-                // Image mode
-                function loadExpressionsInBatches(exprs, batchSize=500, delay=100) {{
-                    var i = 0;
-                    function loadBatch() {{
-                        var batch = exprs.slice(i, i + batchSize);
-                        if (batch.length > 0) {{
-                            batch.forEach(function(expr) {{
-                                calculator.setExpression(expr);
-                            }});
-                            i += batchSize;
-                            if (i < exprs.length) {{
-                                setTimeout(loadBatch, delay);
-                            }} else {{
-                                console.log("All loaded: " + exprs.length + " expressions");
-                            }}
-                        }}
+            var currentFrame = 0;
+            var isPlaying = false;
+            var frameInterval = {FRAME_INTERVAL};  // This is now properly calculated based on video FPS
+            var videoFrames = {json.dumps(st.session_state.video_frames) if st.session_state.video_frames else 'null'};
+            var currentColor = "{st.session_state.current_color}";
+            
+            function loadFrame(frameData) {{
+                calculator.removeExpressions(calculator.getExpressions());
+                frameData.forEach(function(expr) {{
+                    // Update the color to the current color for all expressions except special ones
+                    if (expr.id !== 'truncated' && !expr.color.startsWith('#FF')) {{
+                        expr.color = currentColor;
                     }}
-                    loadBatch();
-                }}
-                
-                loadExpressionsInBatches(expressions, 100, 100);
+                    calculator.setExpression(expr);
+                }});
             }}
             
-        }} catch(e) {{
-            console.error("Error loading expressions:", e);
+            function playAnimation() {{
+                if (!videoFrames || !isPlaying) return;
+                
+                loadFrame(videoFrames[currentFrame]);
+                currentFrame = (currentFrame + 1) % videoFrames.length;
+                
+                // Use frameInterval for timing between frames
+                setTimeout(playAnimation, frameInterval);
+            }}
+            
+            // Add play/pause controls for video
+            if (videoFrames) {{
+                // Create playback controls
+                var controlsDiv = document.createElement('div');
+                controlsDiv.style.position = 'absolute';
+                controlsDiv.style.bottom = '20px';
+                controlsDiv.style.right = '20px';
+                controlsDiv.style.zIndex = '1000';
+                controlsDiv.style.background = 'rgba(255, 255, 255, 0.7)';
+                controlsDiv.style.padding = '10px';
+                controlsDiv.style.borderRadius = '5px';
+                
+                var playPauseBtn = document.createElement('button');
+                playPauseBtn.innerHTML = '⏸️ Pause';
+                playPauseBtn.style.marginRight = '10px';
+                playPauseBtn.onclick = function() {{
+                    isPlaying = !isPlaying;
+                    if (isPlaying) {{
+                        playPauseBtn.innerHTML = '⏸️ Pause';
+                        playAnimation();
+                    }} else {{
+                        playPauseBtn.innerHTML = '▶️ Play';
+                    }}
+                }};
+                
+                // Add playback rate control info
+                var infoSpan = document.createElement('span');
+                infoSpan.innerHTML = 'Speed: {PLAYBACK_SPEED}x | ' + videoFrames.length + ' frames';
+                
+                controlsDiv.appendChild(playPauseBtn);
+                controlsDiv.appendChild(infoSpan);
+                document.body.appendChild(controlsDiv);
+            }}
+            
+            try {{
+                var expressions = {json.dumps(st.session_state.processed_data)};
+                
+                if (videoFrames) {{
+                    // Video mode
+                    isPlaying = true;
+                    playAnimation();
+                }} else {{
+                    // Image mode
+                    function loadExpressionsInBatches(exprs, batchSize=500, delay=100) {{
+                        var i = 0;
+                        function loadBatch() {{
+                            var batch = exprs.slice(i, i + batchSize);
+                            if (batch.length > 0) {{
+                                batch.forEach(function(expr) {{
+                                    // Update the color to the current color for all expressions except special ones
+                                    if (expr.id !== 'truncated' && !expr.color.startsWith('#FF')) {{
+                                        expr.color = currentColor;
+                                    }}
+                                    calculator.setExpression(expr);
+                                }});
+                                i += batchSize;
+                                if (i < exprs.length) {{
+                                    setTimeout(loadBatch, delay);
+                                }} else {{
+                                    console.log("All loaded: " + exprs.length + " expressions with color " + currentColor);
+                                    // After loading all expressions, ensure the bounds are properly set
+                                    calculator.setMathBounds({{
+                                        left: -size,
+                                        right: size,
+                                        bottom: -size,
+                                        top: size
+                                    }});
+                                    calculator.updateSettings({{
+                                        squareAxes: true
+                                    }});
+                                }}
+                            }}
+                        }}
+                        loadBatch();
+                    }}
+                    
+                    loadExpressionsInBatches(expressions, 100, 100);
+                }}
+                
+            }} catch(e) {{
+                console.error("Error loading expressions:", e);
+            }}
         }}
     </script>
     """
-    st.components.v1.html(desmos_html, height=1000, scrolling=False)
+    
+    # Use height="100%" instead of a fixed value to allow full height rendering
+    st.components.v1.html(desmos_html, height=800, scrolling=False)
+    
+    # Add JavaScript to dynamically adjust the component height
+    st.markdown("""
+    <script>
+        // Find iframe and set its height to full viewport height
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                var iframes = document.getElementsByTagName('iframe');
+                for (var i = 0; i < iframes.length; i++) {
+                    iframes[i].style.height = '100vh';
+                    iframes[i].style.minHeight = '100vh';
+                    iframes[i].parentNode.style.height = '100vh';
+                    iframes[i].parentNode.style.minHeight = '100vh';
+                }
+            }, 100);
+        });
+        
+        // Adjust on resize
+        window.addEventListener('resize', function() {
+            var iframes = document.getElementsByTagName('iframe');
+            for (var i = 0; i < iframes.length; i++) {
+                iframes[i].style.height = '100vh';
+                iframes[i].style.minHeight = '100vh';
+            }
+        });
+    </script>
+    """, unsafe_allow_html=True)
