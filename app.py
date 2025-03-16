@@ -32,6 +32,13 @@ if 'active_color' not in st.session_state:
 st.sidebar.title("DesmosArt")
 MEDIA_TYPE = st.sidebar.radio("Select media type:", ["Image", "Video"])
 
+# Set default values for all modes
+MAX_EXPRESSIONS = 50000
+MAX_SIZE = 600
+VIDEO_SCALE = 0.5
+MAX_EXPRESSIONS_PER_FRAME = 1000
+FRAME_SKIP = 2
+
 # Initialize video variables
 if MEDIA_TYPE == "Video":
     st.sidebar.subheader("Video Settings")
@@ -47,9 +54,6 @@ if MEDIA_TYPE == "Video":
     MAX_EXPRESSIONS_PER_FRAME = st.sidebar.slider("Max expressions per frame", 100, 5000, 1000)  # Limit expressions per frame
 else:
     FRAME_INTERVAL = 0  # Not used for images
-    FRAME_SKIP = 1  # Default
-    VIDEO_SCALE = 1.0  # Default
-    MAX_EXPRESSIONS_PER_FRAME = 5000  # Default
 
 # Set up a dedicated color management system
 COLOUR = st.sidebar.color_picker("Line color", st.session_state.active_color, key="color_picker")
@@ -72,10 +76,6 @@ BILATERAL_FILTER = st.sidebar.checkbox("Bilateral filter", False)
 USE_L2_GRADIENT = st.sidebar.checkbox("Use L2 gradient", False)
 SHOW_GRID = st.sidebar.checkbox("Show grid", True)
 SHOW_EXPRESSIONS = st.sidebar.checkbox("Show expression content", True)
-
-# Set maximum number of expressions
-MAX_EXPRESSIONS = 50000
-MAX_SIZE = 600
 
 def resize_image(image, max_size=MAX_SIZE):
     if MEDIA_TYPE == "Video":
@@ -578,20 +578,23 @@ if st.session_state.processed_data is not None:
                 
                 // Add playback rate control info
                 var infoSpan = document.createElement('span');
-                infoSpan.innerHTML = 'Speed: {PLAYBACK_SPEED}x | ' + videoFrames.length + ' frames';
+                infoSpan.innerHTML = '{MEDIA_TYPE == "Video" and f"Speed: {PLAYBACK_SPEED}x | " or ""}' + 
+                                      (videoFrames ? videoFrames.length + ' frames' : '');
                 
                 controlsDiv.appendChild(playPauseBtn);
                 controlsDiv.appendChild(infoSpan);
                 document.body.appendChild(controlsDiv);
+                
+                // Start playback automatically
+                isPlaying = true;
+                playAnimation();
             }}
             
             try {{
                 var expressions = {json.dumps(st.session_state.processed_data)};
                 
                 if (videoFrames) {{
-                    // Video mode
-                    isPlaying = true;
-                    playAnimation();
+                    // Video mode already handled by play controls above
                 }} else {{
                     // Image mode
                     function loadExpressionsInBatches(exprs, batchSize=500, delay=100) {{
