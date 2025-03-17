@@ -38,6 +38,7 @@ MAX_SIZE = 600
 VIDEO_SCALE = 0.5
 MAX_EXPRESSIONS_PER_FRAME = 1000
 FRAME_SKIP = 2
+MIN_CURVE_LENGTH = 0.5  # Global variable for curve length threshold
 
 # Initialize video variables
 if MEDIA_TYPE == "Video":
@@ -45,9 +46,9 @@ if MEDIA_TYPE == "Video":
     if 'video_fps' not in st.session_state:
         st.session_state.video_fps = 30  # Default FPS if not set
     PLAYBACK_SPEED = st.sidebar.slider("Playback speed", 0.25, 2.0, 1.0, 0.25)
-    FRAME_INTERVAL = int(1000 / (st.session_state.video_fps * PLAYBACK_SPEED))  # Convert FPS to milliseconds
+    FRAME_INTERVAL = int(1000 * FRAME_SKIP / (st.session_state.video_fps * PLAYBACK_SPEED))
     FRAME_SKIP = st.sidebar.slider("Process every Nth frame", 1, 10, 2)  # Process every Nth frame
-    
+
     # Add performance optimization options
     st.sidebar.subheader("Performance Optimization")
     VIDEO_SCALE = st.sidebar.slider("Video scale factor", 0.1, 1.0, 0.5, 0.1)  # Default scale to 50%
@@ -104,39 +105,77 @@ def get_contours(image, nudge=.33):
         filtered = cv2.bilateralFilter(gray, 5, 50, 50)
         edged = cv2.Canny(filtered, lower, upper, L2gradient=USE_L2_GRADIENT)
     else:
-        edged = cv2.Canny(gray, 30, 200)
+        # Increase threshold values to reduce noise
+        edged = cv2.Canny(gray, 50, 250)
 
+    # Apply morphological operations to clean up the edges
+    kernel = np.ones((2,2), np.uint8)
+    edged = cv2.morphologyEx(edged, cv2.MORPH_CLOSE, kernel)
+    
     return edged[::-1]
 
 def get_trace(data):
-    for i in range(len(data)):
-        data[i][data[i] > 1] = 1
+    # Apply threshold to reduce noise
+    data = np.where(data > 128, 1, 0).astype(np.uint32)
     bmp = potrace.Bitmap(data)
-    path = bmp.trace(2, potrace.TURNPOLICY_MINORITY, 1.0, 1, .5)
+    # Increase turnpolicy threshold and optimize parameters
+    path = bmp.trace(3, potrace.TURNPOLICY_MINORITY, 1.0, 1, .5)
     return path
 
 def get_latex(image):
     latex = []
     path = get_trace(get_contours(image))
-
+    
+    # Use the global MIN_CURVE_LENGTH
+    global MIN_CURVE_LENGTH
+    
     for curve in path.curves:
         segments = curve.segments
         start = curve.start_point
+        
+        # Skip curves that are too short
+        if len(segments) < 2:
+            continue
+            
         for segment in segments:
             x0, y0 = start
+            
+            # Calculate segment length
             if segment.is_corner:
                 x1, y1 = segment.c
                 x2, y2 = segment.end_point
+                length = np.sqrt((x2-x0)**2 + (y2-y0)**2)
+                
+                if length < MIN_CURVE_LENGTH:
+                    continue
+                    
                 latex.append('((1-t)%f+t%f,(1-t)%f+t%f)' % (x0, x1, y0, y1))
                 latex.append('((1-t)%f+t%f,(1-t)%f+t%f)' % (x1, x2, y1, y2))
             else:
                 x1, y1 = segment.c1
                 x2, y2 = segment.c2
                 x3, y3 = segment.end_point
+                
+                # Calculate approximate curve length
+                length = np.sqrt((x3-x0)**2 + (y3-y0)**2)
+                
+                if length < MIN_CURVE_LENGTH:
+                    continue
+                
+                # Optimize Bezier curve control points
+                if abs(x1 - x0) < 0.1 and abs(y1 - y0) < 0.1:
+                    x1 = x0
+                    y1 = y0
+                if abs(x2 - x3) < 0.1 and abs(y2 - y3) < 0.1:
+                    x2 = x3
+                    y2 = y3
+                
                 bezier_x = f"(1-t)^3*{x0}+3*(1-t)^2*t*{x1}+3*(1-t)*t^2*{x2}+t^3*{x3}"
                 bezier_y = f"(1-t)^3*{y0}+3*(1-t)^2*t*{y1}+3*(1-t)*t^2*{y2}+t^3*{y3}"
                 latex.append(f"({bezier_x},{bezier_y})")
+            
             start = segment.end_point
+            
     return latex
 
 def get_expressions(image, color):
@@ -147,12 +186,24 @@ def get_expressions(image, color):
     # Choose maximum expressions based on media type
     max_expr = MAX_EXPRESSIONS_PER_FRAME if MEDIA_TYPE == "Video" else MAX_EXPRESSIONS
     
+    # Add a minimum expression threshold
+    MIN_EXPRESSIONS = 100
+    
+    # Use the global MIN_CURVE_LENGTH
+    global MIN_CURVE_LENGTH
+    
+    # If we have too many expressions, increase the minimum curve length
+    if len(latex_expressions) > max_expr:
+        MIN_CURVE_LENGTH *= 1.5
+        latex_expressions = get_latex(image)
+        MIN_CURVE_LENGTH /= 1.5
+    
     for i, expr in enumerate(latex_expressions[:max_expr]):
         exprs.append({
             'id': f'expr{i}',
             'latex': expr,
-            'color': color.upper(),  # Convert to uppercase to ensure proper format
-            'lineStyle': 'SOLID',  # Use string instead of undefined reference
+            'color': color.upper(),
+            'lineStyle': 'SOLID',
             'secret': not SHOW_EXPRESSIONS,
             'hidden': False
         })
@@ -164,6 +215,22 @@ def get_expressions(image, color):
             'color': '#FF0000',
             'secret': False
         })
+    
+    if len(exprs) < MIN_EXPRESSIONS:
+        # If we have too few expressions, decrease the minimum curve length
+        MIN_CURVE_LENGTH *= 0.5
+        latex_expressions = get_latex(image)
+        MIN_CURVE_LENGTH *= 2
+        exprs = []
+        for i, expr in enumerate(latex_expressions[:max_expr]):
+            exprs.append({
+                'id': f'expr{i}',
+                'latex': expr,
+                'color': color.upper(),
+                'lineStyle': 'SOLID',
+                'secret': not SHOW_EXPRESSIONS,
+                'hidden': False
+            })
     
     if len(exprs) == 0:
         exprs.append({
@@ -302,7 +369,7 @@ else:  # Video processing
             cap.release()
             
             # Calculate the correct frame interval based on video FPS and playback speed
-            FRAME_INTERVAL = int(1000 / (fps * PLAYBACK_SPEED))
+            FRAME_INTERVAL = int(1000 * FRAME_SKIP / (fps * PLAYBACK_SPEED))
             
             # Display video information
             st.sidebar.text(f"Video information:")
@@ -428,6 +495,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Calculate speed info before JavaScript code
+speed_info = f"Speed: {PLAYBACK_SPEED}x | " if MEDIA_TYPE == "Video" else ""
+
 # If an image or video has been processed, display the result
 if st.session_state.processed_data is not None:
     # Generate Desmos embed code
@@ -529,6 +599,8 @@ if st.session_state.processed_data is not None:
             var frameInterval = {FRAME_INTERVAL};  // This is now properly calculated based on video FPS
             var videoFrames = {json.dumps(st.session_state.video_frames) if st.session_state.video_frames else 'null'};
             var currentColor = "{st.session_state.current_color}";
+            var startTime = null;
+            var lastFrameTime = null;
             
             function loadFrame(frameData) {{
                 calculator.removeExpressions(calculator.getExpressions());
@@ -541,14 +613,31 @@ if st.session_state.processed_data is not None:
                 }});
             }}
             
-            function playAnimation() {{
+            function animate(currentTime) {{
                 if (!videoFrames || !isPlaying) return;
                 
-                loadFrame(videoFrames[currentFrame]);
-                currentFrame = (currentFrame + 1) % videoFrames.length;
+                // Initialize start time if not set
+                if (startTime === null) {{
+                    startTime = currentTime;
+                    lastFrameTime = currentTime;
+                    requestAnimationFrame(animate);
+                    return;
+                }}
                 
-                // Use frameInterval for timing between frames
-                setTimeout(playAnimation, frameInterval);
+                // Calculate elapsed time since start
+                const elapsedTime = currentTime - startTime;
+                
+                // Calculate which frame should be shown based on elapsed time
+                const targetFrame = Math.floor(elapsedTime / frameInterval) % videoFrames.length;
+                
+                // Only update if we've moved to a new frame
+                if (targetFrame !== currentFrame) {{
+                    currentFrame = targetFrame;
+                    loadFrame(videoFrames[currentFrame]);
+                }}
+                
+                // Continue animation loop
+                requestAnimationFrame(animate);
             }}
             
             // Add play/pause controls for video
@@ -556,7 +645,7 @@ if st.session_state.processed_data is not None:
                 // Create playback controls
                 var controlsDiv = document.createElement('div');
                 controlsDiv.style.position = 'absolute';
-                controlsDiv.style.bottom = '20px';
+                controlsDiv.style.bottom = '80px';
                 controlsDiv.style.right = '20px';
                 controlsDiv.style.zIndex = '1000';
                 controlsDiv.style.background = 'rgba(255, 255, 255, 0.7)';
@@ -564,13 +653,14 @@ if st.session_state.processed_data is not None:
                 controlsDiv.style.borderRadius = '5px';
                 
                 var playPauseBtn = document.createElement('button');
-                playPauseBtn.innerHTML = '⏸️ Pause';
+                playPauseBtn.innerHTML = '▶️ Play';
                 playPauseBtn.style.marginRight = '10px';
                 playPauseBtn.onclick = function() {{
                     isPlaying = !isPlaying;
                     if (isPlaying) {{
                         playPauseBtn.innerHTML = '⏸️ Pause';
-                        playAnimation();
+                        startTime = null; // Reset start time when playing
+                        requestAnimationFrame(animate);
                     }} else {{
                         playPauseBtn.innerHTML = '▶️ Play';
                     }}
@@ -578,16 +668,11 @@ if st.session_state.processed_data is not None:
                 
                 // Add playback rate control info
                 var infoSpan = document.createElement('span');
-                infoSpan.innerHTML = '{MEDIA_TYPE == "Video" and f"Speed: {PLAYBACK_SPEED}x | " or ""}' + 
-                                      (videoFrames ? videoFrames.length + ' frames' : '');
+                infoSpan.innerHTML = '{speed_info}' + (videoFrames ? videoFrames.length + ' frames' : '');
                 
                 controlsDiv.appendChild(playPauseBtn);
                 controlsDiv.appendChild(infoSpan);
                 document.body.appendChild(controlsDiv);
-                
-                // Start playback automatically
-                isPlaying = true;
-                playAnimation();
             }}
             
             try {{
@@ -630,7 +715,7 @@ if st.session_state.processed_data is not None:
                         loadBatch();
                     }}
                     
-                    loadExpressionsInBatches(expressions, 100, 100);
+                    loadExpressionsInBatches(expressions, 500, 0);
                 }}
                 
             }} catch(e) {{
